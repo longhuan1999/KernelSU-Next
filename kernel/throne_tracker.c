@@ -188,10 +188,26 @@ FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name,
 				}
 			}
 
+			bool is_manager_pkg = true;
+#ifdef KSU_MANAGER_PACKAGE
+			char pkg[KSU_MAX_PACKAGE_NAME];
+			if (get_pkg_from_apk_path(pkg, apk) < 0) {
+				pr_err("Failed to get package name from apk path: %s\n", apk);
+				is_manager_pkg = false;
+			}
+			// pkg is `/<real package>`
+			if (strncmp(pkg, KSU_MANAGER_PACKAGE, sizeof(KSU_MANAGER_PACKAGE))) {
+				pr_info("manager package is inconsistent with kernel build: %s\n",
+					KSU_MANAGER_PACKAGE);
+				is_manager_pkg = false;
+			} else {
+				is_manager_pkg = true;
+			}
+#endif
 			bool is_manager = is_manager_apk(dirpath);
 			pr_info("Found new base.apk at path: %s, is_manager: %d\n",
 				dirpath, is_manager);
-			if (is_manager) {
+			if (is_manager && is_manager_pkg) {
 				crown_manager(dirpath, my_ctx->private_data);
 				*my_ctx->stop = 1;
 

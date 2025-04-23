@@ -8,7 +8,6 @@
     <string name="issue_report_github_link">https://github.com/KernelSU-Next/KernelSU-Next/issues</string>
     <string name="issue_report_telegram_link">https://t.me/ksunext</string>
     <string name="confirm">ยืนยัน</string>
-    <string name="app_name" translatable="false">KernelSU Next</string>
     <string name="home">หน้าหลัก</string>
     <string name="home_not_installed">ยังไม่ได้ติดตั้ง</string>
     <string name="home_click_to_install">กดเพื่อติดตั้ง</string>

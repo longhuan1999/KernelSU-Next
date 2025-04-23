@@ -8,7 +8,6 @@
     <string name="issue_report_github_link">https://github.com/KernelSU-Next/KernelSU-Next/issues</string>
     <string name="issue_report_telegram_link">https://t.me/ksunext</string>
     <string name="confirm">Megerősítés</string>
-    <string name="app_name" translatable="false">KernelSU Next</string>
     <string name="home">Kezdőlap</string>
     <string name="home_not_installed">Nincs telepítve</string>
     <string name="home_click_to_install">Kattintson a telepítéshez</string>

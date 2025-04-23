@@ -1,34 +1,25 @@
 name: Build Kernel - Android 12
 on:
-  push:
-    branches: [ "next" ]
-    paths:
-      - ".github/workflows/build-kernel-a12.yml"
-      - ".github/workflows/gki-kernel.yml"
-      - ".github/scripts/build_a12.sh"
-      - "kernel/**"
-  pull_request:
-    branches: [ "next" ]
-    paths:
-      - ".github/workflows/build-kernel-a12.yml"
-      - ".github/workflows/gki-kernel.yml"
-      - ".github/scripts/build-a12.sh"
-      - "kernel/**"
   workflow_call:
+    inputs:
+      enable_susfs:
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      enable_susfs:
+        required: false
+        type: boolean
+        default: false
 jobs:
   build-kernel:
-    if: github.event_name != 'pull_request' && github.ref != 'refs/heads/next'
+    if: github.event_name != 'pull_request' && github.ref != 'refs/heads/next' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         include:
-          - sub_level: 209
-            os_patch_level: 2024-05
-          - sub_level: 218
-            os_patch_level: 2024-08
-          - sub_level: 226
-            os_patch_level: 2024-11
-          - sub_level: 233
-            os_patch_level: 2025-02
+          - sub_level: 198
+            os_patch_level: 2024-01
     uses: ./.github/workflows/gki-kernel.yml
     secrets: inherit
     with:
@@ -37,11 +28,12 @@ jobs:
       tag: android12-5.10-${{ matrix.os_patch_level }}
       os_patch_level: ${{ matrix.os_patch_level }}
       patch_path: "5.10"
+      enable_susfs: ${{ fromJSON(github.event.inputs.enable_susfs) || false }}
   
   upload-artifacts:
     needs: build-kernel
     runs-on: ubuntu-latest
-    if: ${{ ( github.event_name != 'pull_request' && github.ref == 'refs/heads/next' ) || github.ref_type == 'tag' || github.ref == 'refs/heads/next' }}
+    if: ${{ ( github.event_name != 'pull_request' && github.ref == 'refs/heads/next' ) || github.ref_type == 'tag' || github.ref == 'refs/heads/next' || github.event_name == 'workflow_dispatch' }}
     env:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -110,7 +102,7 @@ jobs:
           path: Image-android12*/*.img.gz
 
   check-build-kernel:
-    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/next'
+    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/next' && github.event_name != 'workflow_dispatch'
     uses: ./.github/workflows/gki-kernel.yml
     with:
       version: android12-5.10

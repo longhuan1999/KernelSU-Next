@@ -45,6 +45,13 @@ on:
         description: >
           Artifact name of prebuilt ksud to be embedded
           for example: ksud-aarch64-linux-android
+      enable_susfs:
+        required: false
+        type: boolean
+        description: >
+          Enable SUSFS to support KernelSU-Next
+          for example: true
+        default: false
       debug:
         required: false
         type: boolean
@@ -95,6 +102,25 @@ jobs:
           else
             echo "UPLOAD=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Checkout Tag and Clone patches
+        if: ${{ inputs.enable_susfs }}
+        run: |
+          echo "Cloning patches..."
+
+          # Define the branch names using the inputs values
+          SUSFS_BRANCH="gki-${{ inputs.version }}"
+
+          # Debug print the branches
+          echo "Using branch for SUSFS: $SUSFS_BRANCH"
+
+          # Clone repositories using the branch names
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+          git clone https://github.com/WildPlusKernel/kernel_patches.git
+
+          # Checkout Lastest Tag
+          cd $GITHUB_WORKSPACE/KernelSU-Next
+          git checkout "$(git describe --abbrev=0 --tags)" && echo "[-] Checked out latest tag."
 
       - name: Setup kernel source
         run: |
@@ -195,6 +221,102 @@ jobs:
             sed -i 's/needs unknown symbol/Dont abort when unknown symbol/g' build/kernel/*.sh || echo "No unknown symbol scripts found"
           fi
 
+      - name: Apply SUSFS Patches for KernelSU Variants
+        if: ${{ inputs.enable_susfs }}
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel
+          
+          echo "Applying SUSFS patches..."
+          
+          # Copy SUSFS patches
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.version }}.patch ./common/
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+
+          echo "Applying SUSFS patches for KernelSU-Next..."
+          cd $GITHUB_WORKSPACE/KernelSU-Next
+          cp $GITHUB_WORKSPACE/kernel_patches/next/0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch ./
+          patch -p1 --forward < 0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch || true
+
+          # Change to common directory and apply common SUSFS patch
+          cd $GITHUB_WORKSPACE/android-kernel/common
+          patch -p1 < 50_add_susfs_in_gki-${{ inputs.version }}.patch || true
+
+      - name: Apply New Hooks Patches
+        if: ${{ inputs.enable_susfs }}
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel/common
+          echo "Applying hooks for KernelSU-Next..."
+          cp $GITHUB_WORKSPACE/kernel_patches/next/syscall_hooks.patch ./
+          patch -p1 -F 3 < syscall_hooks.patch
+          
+      - name: Apply Hide Stuff Patches
+        if: ${{ inputs.enable_susfs }}
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel/common
+          # Apply additional patch
+          cp $GITHUB_WORKSPACE/kernel_patches/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+            
+      - name: Add SUSFS Configuration Settings
+        if: ${{ inputs.enable_susfs }}
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel
+
+          echo "Adding configuration settings to gki_defconfig..."
+
+          # Add KSU configuration settings
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          echo "CONFIG_KSU_WITH_KPROBES=n" >> ./common/arch/arm64/configs/gki_defconfig
+
+          # Add SUSFS configuration settings
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # Add additional tmpfs config setting
+          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+
+          # Add additional config setting
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+
+          # Remove check_defconfig
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+      
+      - name: Config BBR
+        if: ${{ inputs.enable_susfs }}
+        #if: ${{ inputs.kernel_version != '6.6' }}
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel/common
+          # Add bbrv3 config setting
+          #cp ../../kernel_patches/bbr/tcp_bbr.c ./net/ipv4/
+
+          cd ..
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig 
+          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NET_SCH_FQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BIC=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_HTCP=n" >> ./common/arch/arm64/configs/gki_defconfig 
+
       - name: Make working directory clean to avoid dirty
         working-directory: android-kernel
         run: |
@@ -204,12 +326,33 @@ jobs:
           cd common/ && git add -A && git commit -a -m "Add KernelSU-Next"
           repo status
 
+      - name: Config Kernel Name
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel
+
+          sed -i '$s|echo "\$res"|echo "\$res-Wild+"|' ./common/scripts/setlocalversion
+
+          # Run perl command to modify UTS_VERSION
+          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sat Apr 20 04:20:00 UTC 2024"}' ./common/scripts/mkcompile_h
+          
+          echo "Building the kernel..."
+          if [ -f "build/build.sh" ]; then
+            sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          else
+            rm -rf ./common/android/abi_gki_protected_exports_*
+            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+            sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-Wild+"/' ./common/arch/arm64/configs/gki_defconfig
+          fi
+
       - name: Build Kernel/LKM
         working-directory: android-kernel
         run: |
           if [ ! -z ${{ vars.EXPECTED_SIZE }} ] && [ ! -z ${{ vars.EXPECTED_HASH }} ]; then
-            export KSU_EXPECTED_SIZE=${{ vars.EXPECTED_SIZE }}
-            export KSU_EXPECTED_HASH=${{ vars.EXPECTED_HASH }}
+            export KSU_NEXT_EXPECTED_SIZE=${{ vars.EXPECTED_SIZE }}
+            export KSU_NEXT_EXPECTED_HASH=${{ vars.EXPECTED_HASH }}
+          fi
+          if [ ! -z "${{ vars.APP_ID }}" ]; then
+            export KSU_MANAGER_PACKAGE=${{ vars.APP_ID }}
           fi
           if [ -e build/build.sh ]; then
             LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
